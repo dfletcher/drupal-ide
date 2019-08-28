@@ -8,7 +8,19 @@
             "name": "Listen for XDebug",
             "type": "php",
             "request": "launch",
-            "port": 9000
+            "port": 9000,
+            "pathMappings": {
+                "/var/www/html/themes/custom_themes": "/workspace/themes",
+                "/var/www/html/modules/custom": "/workspace/modules",
+                "/var/www/html/modules/custom_features": "/workspace/features",
+                "/var/www/html/web/themes/custom_themes": "/workspace/themes",
+                "/var/www/html/web/modules/custom": "/workspace/modules",
+                "/var/www/html/web/modules/custom_features": "/workspace/features",
+                "/var/www/html/drupal/themes/custom_themes": "/workspace/themes",
+                "/var/www/html/drupal/modules/custom": "/workspace/modules",
+                "/var/www/html/drupal/modules/custom_features": "/workspace/features",
+                "/var/www/html": "/workspace"
+            }
         },
-    ]
+    ],
 }
