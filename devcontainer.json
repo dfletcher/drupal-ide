@@ -14,5 +14,5 @@
 	"settings": {
 		"terminal.integrated.shell.linux": "/bin/bash"
 	},
-	"postCreateCommand": "/bin/bash /workspace/.devcontainer/files/start.sh",
+	"postCreateCommand": "/bin/bash /workspace/.devcontainer/files/bin/install-drupal-ide.sh",
 }

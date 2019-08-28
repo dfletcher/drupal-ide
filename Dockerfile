@@ -37,7 +37,7 @@ RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local
 
 # Install supervisor
 COPY ./.devcontainer/files/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-COPY ./.devcontainer/files/foreground.sh /etc/apache2/foreground.sh
+COPY ./.devcontainer/files/bin/foreground.sh /etc/apache2/foreground.sh
 COPY ./.devcontainer/files/scripts/composer/ScriptHandler.php /var/www/html/scripts/composer/ScriptHandler.php
 COPY ./.devcontainer/files/load.environment.php /var/www/html/load.environment.php
 COPY ./.devcontainer/files/xdebug.ini /etc/php/7.2/mods-available/xdebug.ini
