@@ -1,21 +1,14 @@
 #!/bin/bash
 
-. /workspace/ENV
+function setting(){
+  defaultsettings="${SYSTEM_SETTINGS_JSON}"
+  [[ -f ${USER_SETTINGS_JSON} ]] && defaultsettings="${USER_SETTINGS_JSON}"
+  jq -Mr "${1}" "${2:-${defaultsettings}}"
+}
 
-ENVIRONMENT="dev"
-BASEHTML="/var/www/html"
-DOCROOT="/var/www/html/web"
-DRUSH="/.composer/vendor/drush/drush/drush -y"
-GRPID=$(stat -c "%g" /var/lib/mysql/)
-LOCAL_IP=$(hostname -I| awk '{print $1}')
-HOSTIP=$(/sbin/ip route | awk '/default/ { print $3 }')
-
-DEV_MODULES_ENABLED=("${DEV_MODULES_ENABLED[*]}" $(ls /workspace/modules))
-DEV_MODULES_ENABLED=("${DEV_MODULES_ENABLED[*]}" $(ls /workspace/.base/modules))
-DEV_MODULES_ENABLED=("${DEV_MODULES_ENABLED[*]}" $(ls /workspace/features))
-DEV_MODULES_ENABLED=("${DEV_MODULES_ENABLED[*]}" $(ls /workspace/.base/features))
-DEV_THEMES_ENABLED=("${DEV_THEMES_ENABLED[*]}" $(ls /workspace/themes))
-DEV_THEMES_ENABLED=("${DEV_THEMES_ENABLED[*]}" $(ls /workspace/.base/themes))
+function csetting(){
+  setting "${1}" "${COMPOSER}"
+}
 
 function logrun(){
   LABEL=$1; shift
@@ -36,51 +29,171 @@ function logrun(){
   echo "     Completed $(date)"
 }
 
-echo
-echo "----------------------------------------------------------------------------------"
-echo "       ${SITE_NAME} installation started"
-echo "       $(date)"
-echo "----------------------------------------------------------------------------------"
+function mysqlrunning(){
+  mysqladmin -uroot status >/dev/null 2>&1 || \
+    mysqladmin -uroot "-p${ROOT_PASSWORD}" status >/dev/null 2>&1 || \
+    mysqladmin -udrupal "-p${MYSQL_PASSWORD}" status >/dev/null 2>&1
+}
+
+function message(){
+  echo
+  echo "----------------------------------------------------------------------------------"
+  echo "     ${1}"
+  echo "     $(date)"
+  echo "----------------------------------------------------------------------------------"
+}
+
+ENVIRONMENT="${ENVIRONMENT:-dev}"
+APPDIR="${APPDIR:-/var/www/html}"
+DRUPAL_PROJECT=${DRUPAL_PROJECT:-"drupal-composer/drupal-project:8.x-dev"}
+WORKSPACE="${WORKSPACE:-/workspace}"
+SYSTEM_SETTINGS_JSON="${WORKSPACE}/.devcontainer/files/drupal-ide.default.json"
+USER_SETTINGS_JSON="${USER_SETTINGS_JSON:-"${WORKSPACE}/.drupal-ide.json"}"
+DRUSH="/.composer/vendor/drush/drush/drush -y"
+GRPID=$(stat -c "%g" /var/lib/mysql/)
+LOCAL_IP=$(hostname -I| awk '{print $1}')
+HOSTIP=$(/sbin/ip route | awk '/default/ { print $3 }')
+
+# Settings controlled by .drupal-ide.json
+SITE_NAME="$(setting .sitename)"
+DEV_DRUPAL_ADMIN_USER="$(setting .admin.user)"
+DEV_DRUPAL_ADMIN_PASSWORD="$(setting .admin.password)"
+declare -a DEV_MODULES_ENABLED=$(setting .modules.enable[])
+declare -a DEV_MODULES_DISABLED=$(setting .modules.disable[])
+declare -a DEV_THEMES_ENABLED=$(setting .themes.enable[])
+declare -a DEV_THEMES_DISABLED=$(setting .themes.disable[])
+DEV_PUBLIC_THEME="$(setting .themes.public)"
+DEV_ADMIN_THEME="$(setting .themes.admin)"
+
+# Run from app directory.
+cd ${APPDIR}
+
+# Startup messaging.
+cat ${WORKSPACE}/.devcontainer/files/bin/logo.txt
+message "${SITE_NAME} installation started."
 
 # Setup hosts file.
 echo "${HOSTIP} dockerhost" >> /etc/hosts
 
 # Start supervisord
-supervisord -c /etc/supervisor/conf.d/supervisord.conf -l /tmp/supervisord.log
-
-# Composer and Drush commands run from here.
-cd ${BASEHTML}
-
-# Run composer create-project
-if ! logrun "Running \`composer create-project\`. This takes a while." \
-     "composer-create-project.log" \
-     composer create-project --no-interaction; then
+if ! logrun "Starting supervisord." "start-supervisord.log" \
+  supervisord -c /etc/supervisor/conf.d/supervisord.conf -l /tmp/supervisord.log; then
   exit $?
 fi
 
-# Fetch adminer.
-if ! logrun "Fetch adminer." \
-     "wget-fetch-adminer.log" \
-      wget "http://www.adminer.org/latest.php" -O ${DOCROOT}/adminer.php; then
-    exit $?
+if [[ -z "${APPDIR}" ]]; then
+  echo "Fatal: APPDIR is not set. Cannot continue."
+  exit -1
 fi
 
-chmod a+w ${DOCROOT}/sites/default;
-chown -R www-data:${GRPID} ${DOCROOT}
-chmod -R ug+w ${DOCROOT}
+# Install Drupal into $APPDIR.
+COMPOSER="${COMPOSER:-$(find ${WORKSPACE} -name composer.json | grep -v .devcontainer | sort | head -n1)}"
+if [[ -z "${COMPOSER}" ]]; then
+  # We do not have an existing composer.json. Create a new project.
+  rm -rf "${APPDIR}"/* "${APPDIR}"/.*
+  if ! logrun "Creating application in ${APPDIR}. This takes a while." \
+      "composer-create-project.log" \
+      composer create-project "${DRUPAL_PROJECT}" . --no-interaction; then
+    exit $?
+  fi
+  cp composer.json ${WORKSPACE}/
+  rm composer.json
+  COMPOSER="${WORKSPACE}/composer.json"
+  [[ -f composer.json ]] || ln -s "${COMPOSER}" composer.json
+else
+  # User supplied an existing composer.json.
+  [[ -f composer.json ]] || ln -s "${COMPOSER}" composer.json
+  if ! logrun "Running \`composer create-project\`. This takes a while." \
+      "composer-create-project.log" \
+      composer create-project --no-interaction; then
+    exit $?
+  fi
+fi
 
-# Generate random passwords
+# Paths that are based on location of core directory, these need
+# to be set after the above composer installation has run.
+COMPOSER_DIR=$(dirname "${COMPOSER}")
+COREPATH=$(jq -Mr 'last(paths(.. == "type:drupal-core"))[2]' "${COMPOSER}" 2>/dev/null )
+WORKSPACE_DRUPALCORE="${COMPOSER_DIR}/${COREPATH}"
+WORKSPACE_DRUPALBASE=$(dirname "${WORKSPACE_DRUPALCORE}")
+WORKSPACE_MODULES="${WORKSPACE_MODULES:-${WORKSPACE_DRUPALBASE}/modules/custom}"
+WORKSPACE_THEMES="${WORKSPACE_THEMES:-${WORKSPACE_DRUPALBASE}/themes/custom}"
+WORKSPACE_PROFILES="${WORKSPACE_PROFILES:-${WORKSPACE_DRUPALBASE}/profiles/custom}"
+WORKSPACE_FEATURES="${WORKSPACE_FEATURES:-${WORKSPACE_DRUPALBASE}/modules/custom_features}"
+APPDIR_DRUPALCORE="${APPDIR}/${COREPATH}"
+APPDIR_DRUPALBASE=$(dirname "${APPDIR_DRUPALCORE}")
+APPDIR_ROOT="${APPDIR}/${COREPATH}"
+APPDIR_MODULES="${APPDIR_ROOT}/modules/custom"
+APPDIR_THEMES="${APPDIR_ROOT}/themes/custom"
+APPDIR_PROFILES="${APPDIR_ROOT}/profiles/custom"
+APPDIR_FEATURES="${APPDIR_ROOT}/modules/custom_features"
+DEV_MODULES_ENABLED=("${DEV_MODULES_ENABLED[*]}" $(ls "${WORKSPACE_MODULES}"))
+DEV_MODULES_ENABLED=("${DEV_MODULES_ENABLED[*]}" $(ls "${WORKSPACE_FEATURES}"))
+HTDOCS="${APPDIR_DRUPALBASE}"
+
+# Create supported user directories if they don't exist.
+for x in "${WORKSPACE_MODULES}" "${WORKSPACE_THEMES}" "${WORKSPACE_PROFILES}" "${WORKSPACE_FEATURES}"; do
+  if [[ ! -d "${x}" ]]; then
+    mkdir -p "${x}"
+    touch "${x}/.gitignore"
+  fi
+done
+
+# Link workspace user directories into application dir.
+[[ -d "${APPDIR_MODULES}" ]] || ln -s "${WORKSPACE_MODULES}" "${APPDIR_MODULES}"
+[[ -d "${APPDIR_THEMES}" ]] || ln -s "${WORKSPACE_THEMES}" "${APPDIR_THEMES}"
+[[ -d "${APPDIR_PROFILES}" ]] || ln -s "${WORKSPACE_PROFILES}" "${APPDIR_PROFILES}"
+[[ -d "${APPDIR_FEATURES}" ]] || ln -s "${WORKSPACE_FEATURES}" "${APPDIR_FEATURES}"
+
+# Settings file can declare additional packages.
+# If necessary, add them to composer.json.
+for m in $(setting .install[]); do
+  if [[ $(csetting .require[\"${m}\"]) = "null" ]]; then
+    if ! logrun "Require ${m}." \
+        "composer-require-includes.log" \
+          composer require "${m}"; then
+        exit $?
+    fi
+  fi
+done
+
+# Fetch adminer.
+if ! logrun "Fetch adminer." \
+    "wget-fetch-adminer.log" \
+    wget "http://www.adminer.org/latest.php" -O ${HTDOCS}/adminer.php; then
+  exit $?
+fi
+
+# Permissions fixups.
+chmod a+w ${HTDOCS}/sites/default;
+chown -R www-data:${GRPID} ${APPDIR}
+chmod -R ug+w ${APPDIR}
+
+# Generate random passwords or read existing.
 DRUPAL_DB="drupal"
+ROOT_PASSWORD_FILE="/var/lib/mysql/mysql/mysql-root-pw.txt"
+MYSQL_PASSWORD_FILE="/var/lib/mysql/mysql/drupal-db-pw.txt"
 DEBPASS=$(grep password /etc/mysql/debian.cnf |head -n1|awk '{print $3}')
-ROOT_PASSWORD=`pwgen -c -n -1 12`
-MYSQL_PASSWORD=`pwgen -c -n -1 12`
-echo ${ROOT_PASSWORD} > /var/lib/mysql/mysql/mysql-root-pw.txt
-echo ${MYSQL_PASSWORD} > /var/lib/mysql/mysql/drupal-db-pw.txt
+
+if [[ -f "${ROOT_PASSWORD_FILE}" ]]; then
+  ROOT_PASSWORD="$(cat "${ROOT_PASSWORD_FILE}")"
+else
+  ROOT_PASSWORD="$(pwgen -c -n -1 12)"
+  echo ${ROOT_PASSWORD} > "${ROOT_PASSWORD_FILE}"
+fi
+
+if [[ -f "${MYSQL_PASSWORD_FILE}" ]]; then
+  MYSQL_PASSWORD="$(cat "${MYSQL_PASSWORD_FILE}")"
+else
+  MYSQL_PASSWORD="$(pwgen -c -n -1 12)"
+  echo ${MYSQL_PASSWORD} > "${MYSQL_PASSWORD_FILE}"
+fi
 
 # Wait for mysql
-if ! mysqladmin status >/dev/null 2>&1; then
-  echo -n "Waiting for mysql ." ; sleep 1;
-  while ! mysqladmin status >/dev/null 2>&1; do
+if ! mysqlrunning; then
+  echo
+  echo -n "++++ Waiting for mysql ." ; sleep 1;
+  while ! mysqlrunning; do
     echo -n .
     sleep 1
   done
@@ -93,8 +206,8 @@ mysql -uroot -p${ROOT_PASSWORD} -e \
       "GRANT ALL PRIVILEGES ON *.* TO 'debian-sys-maint'@'localhost' IDENTIFIED BY '$DEBPASS';" 2>/dev/null
 mysql -uroot -p${ROOT_PASSWORD} -e \
       "CREATE DATABASE drupal; GRANT ALL PRIVILEGES ON drupal.* TO 'drupal'@'%' IDENTIFIED BY '$MYSQL_PASSWORD'; FLUSH PRIVILEGES;" 2>/dev/null
-cd ${DOCROOT}
-cp sites/default/default.settings.php sites/default/settings.php
+cd ${APPDIR}
+cp "${APPDIR_DRUPALBASE}/sites/default/default.settings.php" "${APPDIR_DRUPALBASE}/sites/default/settings.php"
 
 # Drush crashes w segfault if xdebug is on. Disable for cli.
 rm -f /etc/php/7.2/cli/conf.d/20-xdebug.ini
@@ -175,19 +288,19 @@ if ! logrun "Applying Features configuration." \
 fi
 
 # Reset files perms
-chown -R www-data:${GRPID} ${DOCROOT}/sites/default/
-chmod -R ug+w ${DOCROOT}/sites/default/
+chown -R www-data:${GRPID} ${APPDIR}/sites/default/
+chmod -R ug+w ${APPDIR}/sites/default/
 chown -R mysql:${GRPID} /var/lib/mysql/
 chmod -R ug+w /var/lib/mysql/
 
 # User post installation script.
-[[ -f "/workspace/postinstall.sh" ]] && . /workspace/postinstall.sh "${ENVIRONMENT}"
+[[ -f "${WORKSPACE}/postinstall.sh" ]] && . "${WORKSPACE}/postinstall.sh" "${ENVIRONMENT}"
 
 # Wait a few then rebuild cache
 sleep 3
 if ! logrun "Cache rebuild." \
   "drush-pm-config-set-system-theme-admin.log" \
-  ${DRUSH} --root=${DOCROOT} cache-rebuild; then
+  ${DRUSH} --root=${APPDIR} cache-rebuild; then
   exit $?
 fi
 
