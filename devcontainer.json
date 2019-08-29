@@ -7,6 +7,8 @@
 	"extensions": [
 		"felixfbecker.php-debug",
 		"felixfbecker.php-intellisense",
+		"marcostazi.vs-code-drupal",
+		"dssiqueira.drupal-8-snippets",
 		"shd101wyy.markdown-preview-enhanced",
 		"auchenberg.vscode-browser-preview",
 		"whatwedo.twig"
