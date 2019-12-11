@@ -32,20 +32,20 @@ RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local
   && php --version; composer --version; drupal --version; drush --version
 
 # Installed files
-COPY ./.devcontainer/files/bin/foreground.sh /etc/apache2/foreground.sh
-COPY ./.devcontainer/files/scripts/composer/ScriptHandler.php /var/www/html/scripts/composer/ScriptHandler.php
-COPY ./.devcontainer/files/load.environment.php /var/www/html/load.environment.php
-COPY ./.devcontainer/files/xdebug.ini /etc/php/7.2/mods-available/xdebug.ini
-COPY ./.devcontainer/files/composer-drupal-core.json /var/www/html/composer-drupal-core.json
-COPY ./.devcontainer/files/bin/drupaldb /usr/local/bin/drupaldb
-COPY ./.devcontainer/files/bin/drupaldbdump /usr/local/bin/drupaldbdump
+COPY files/bin/foreground.sh /etc/apache2/foreground.sh
+COPY files/scripts/composer/ScriptHandler.php /var/www/html/scripts/composer/ScriptHandler.php
+COPY files/load.environment.php /var/www/html/load.environment.php
+COPY files/xdebug.ini /etc/php/7.2/mods-available/xdebug.ini
+COPY files/composer-drupal-core.json /var/www/html/composer-drupal-core.json
+COPY files/bin/drupaldb /usr/local/bin/drupaldb
+COPY files/bin/drupaldbdump /usr/local/bin/drupaldbdump
 RUN chmod +x /usr/local/bin/drupaldb; \
     chmod +x /usr/local/bin/drupaldbdump
 
 # Apache & Xdebug
 RUN rm /etc/apache2/sites-available/000-default.conf /etc/apache2/sites-enabled/*
-ADD ./.devcontainer/files/000-default.conf /etc/apache2/sites-available/000-default.conf
-ADD ./.devcontainer/files/xdebug.ini /etc/php/7.2/mods-available/xdebug.ini
+ADD files/000-default.conf /etc/apache2/sites-available/000-default.conf
+ADD files/xdebug.ini /etc/php/7.2/mods-available/xdebug.ini
 RUN a2ensite 000-default ; a2enmod rewrite vhost_alias
 
 # Drupal new version, clean cache
