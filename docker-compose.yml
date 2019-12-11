@@ -1,15 +1,28 @@
 version: '3.3'
 services:
+  mysqldb:
+    hostname: mysqldb
+    image: mysql
+    command: --default-authentication-plugin=mysql_native_password
+    restart: always
+    environment:
+        - MYSQL_ROOT_PASSWORD=root
+    ports:
+        - '3306:3306'
   drupal:
     stdin_open: true
     tty: true
-    image: davefletcher/drupal-devcontainer
-    #build:
-    #  context: ..
-    #  dockerfile: .devcontainer/Dockerfile
+    #image: davefletcher/drupal-devcontainer
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
     ports:
       - 80:80
       - 9000:9000
     volumes:
       - ${PWD}:/workspace
     restart: always
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+    depends_on:
+      - mysqldb
