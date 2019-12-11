@@ -21,18 +21,18 @@ function logrun(){
   echo "     Started $(date)" | tee "/tmp/${LOGFILE}"
   eval ${COMMAND} ${ARGS[*]} >> "/tmp/${LOGFILE}" 2>&1
   if [[ $? -ne 0 ]]; then
-    echo "    Error running command. Output follows:"
-    cat "/tmp/${LOGFILE}"
+    echo "     Error running command. Output in /tmp/${LOGFILE}."
+    #cat "/tmp/${LOGFILE}"
     echo
-    exit -1
+    #exit -1
   fi
   echo "     Completed $(date)"
 }
 
 function mysqlrunning(){
-  mysqladmin -uroot status >/dev/null 2>&1 || \
-    mysqladmin -uroot "-p${ROOT_PASSWORD}" status >/dev/null 2>&1 || \
-    mysqladmin -udrupal "-p${MYSQL_PASSWORD}" status >/dev/null 2>&1
+  mysqladmin -h${DATABASE_HOST} -uroot status >/dev/null 2>&1 || \
+    mysqladmin -h${DATABASE_HOST} -uroot "-p${MYSQL_ROOT_PASSWORD}" status >/dev/null 2>&1 || \
+    mysqladmin -h${DATABASE_HOST} -udrupal "-p${MYSQL_PASSWORD}" status >/dev/null 2>&1
 }
 
 function message(){
@@ -45,7 +45,7 @@ function message(){
 
 ENVIRONMENT="${ENVIRONMENT:-dev}"
 APPDIR="${APPDIR:-/var/www/html}"
-DRUPAL_PROJECT=${DRUPAL_PROJECT:-"drupal-composer/drupal-project:8.x-dev"}
+DRUPAL_PROJECT=${DRUPAL_PROJECT:-"drupal/recommended-project"}
 WORKSPACE="${WORKSPACE:-/workspace}"
 SYSTEM_SETTINGS_JSON="${WORKSPACE}/.devcontainer/files/drupal-ide.default.json"
 USER_SETTINGS_JSON="${USER_SETTINGS_JSON:-"${WORKSPACE}/.drupal-ide.json"}"
@@ -64,6 +64,7 @@ declare -a DEV_THEMES_ENABLED=$(setting .themes.enable[])
 declare -a DEV_THEMES_DISABLED=$(setting .themes.disable[])
 DEV_PUBLIC_THEME="$(setting .themes.public)"
 DEV_ADMIN_THEME="$(setting .themes.admin)"
+DATABASE_HOST="${DATABASE_HOST:-"mysqldb"}"
 
 # Run from app directory.
 cd ${APPDIR}
@@ -71,15 +72,6 @@ cd ${APPDIR}
 # Startup messaging.
 cat ${WORKSPACE}/.devcontainer/files/bin/logo.txt
 message "${SITE_NAME} installation started."
-
-# Setup hosts file.
-echo "${HOSTIP} dockerhost" >> /etc/hosts
-
-# Start supervisord
-if ! logrun "Starting supervisord." "start-supervisord.log" \
-  supervisord -c /etc/supervisor/conf.d/supervisord.conf -l /tmp/supervisord.log; then
-  exit $?
-fi
 
 if [[ -z "${APPDIR}" ]]; then
   echo "Fatal: APPDIR is not set. Cannot continue."
@@ -89,25 +81,17 @@ fi
 # Install Drupal into $APPDIR.
 COMPOSER="${COMPOSER:-$(find ${WORKSPACE} -name composer.json | grep -v .devcontainer | sort | head -n1)}"
 if [[ -z "${COMPOSER}" ]]; then
-  # We do not have an existing composer.json. Create a new project.
-  rm -rf "${APPDIR}"/* "${APPDIR}"/.*
-  if ! logrun "Creating application in ${APPDIR}. This takes a while." \
-      "composer-create-project.log" \
-      composer create-project "${DRUPAL_PROJECT}" . --no-interaction; then
-    exit $?
-  fi
+  # We do not have an existing composer.json. Use supplied.
   cp composer.json ${WORKSPACE}/
   rm composer.json
   COMPOSER="${WORKSPACE}/composer.json"
-  [[ -f composer.json ]] || ln -s "${COMPOSER}" composer.json
-else
-  # User supplied an existing composer.json.
-  [[ -f composer.json ]] || ln -s "${COMPOSER}" composer.json
-  if ! logrun "Running \`composer create-project\`. This takes a while." \
-      "composer-create-project.log" \
-      composer create-project --no-interaction; then
-    exit $?
-  fi
+fi
+[[ -f composer.json ]] || ln -s "${COMPOSER}" composer.json
+
+if ! logrun "Running \`composer update\`. This takes a while." \
+    "composer-update.log" \
+    composer update --no-interaction; then
+  exit $?
 fi
 
 # Paths that are based on location of core directory, these need
@@ -116,10 +100,10 @@ COMPOSER_DIR=$(dirname "${COMPOSER}")
 COREPATH=$(jq -Mr 'last(paths(.. == "type:drupal-core"))[2]' "${COMPOSER}" 2>/dev/null )
 WORKSPACE_DRUPALCORE="${COMPOSER_DIR}/${COREPATH}"
 WORKSPACE_DRUPALBASE=$(dirname "${WORKSPACE_DRUPALCORE}")
-WORKSPACE_MODULES="${WORKSPACE_MODULES:-${WORKSPACE_DRUPALBASE}/modules/custom}"
-WORKSPACE_THEMES="${WORKSPACE_THEMES:-${WORKSPACE_DRUPALBASE}/themes/custom}"
-WORKSPACE_PROFILES="${WORKSPACE_PROFILES:-${WORKSPACE_DRUPALBASE}/profiles/custom}"
-WORKSPACE_FEATURES="${WORKSPACE_FEATURES:-${WORKSPACE_DRUPALBASE}/modules/custom_features}"
+WORKSPACE_MODULES="${WORKSPACE_MODULES:-${WORKSPACE_DRUPALBASE}/modules}"
+WORKSPACE_THEMES="${WORKSPACE_THEMES:-${WORKSPACE_DRUPALBASE}/themes}"
+WORKSPACE_PROFILES="${WORKSPACE_PROFILES:-${WORKSPACE_DRUPALBASE}/profiles}"
+WORKSPACE_FEATURES="${WORKSPACE_FEATURES:-${WORKSPACE_DRUPALBASE}/features}"
 APPDIR_DRUPALCORE="${APPDIR}/${COREPATH}"
 APPDIR_DRUPALBASE=$(dirname "${APPDIR_DRUPALCORE}")
 APPDIR_ROOT="${APPDIR}/${COREPATH}"
@@ -157,13 +141,6 @@ for m in $(setting .install[]); do
   fi
 done
 
-# Fetch adminer.
-if ! logrun "Fetch adminer." \
-    "wget-fetch-adminer.log" \
-    wget "http://www.adminer.org/latest.php" -O ${HTDOCS}/adminer.php; then
-  exit $?
-fi
-
 # Permissions fixups.
 chmod a+w ${HTDOCS}/sites/default;
 chown -R www-data:${GRPID} ${APPDIR}
@@ -171,16 +148,8 @@ chmod -R ug+w ${APPDIR}
 
 # Generate random passwords or read existing.
 DRUPAL_DB="drupal"
-ROOT_PASSWORD_FILE="/var/lib/mysql/mysql/mysql-root-pw.txt"
-MYSQL_PASSWORD_FILE="/var/lib/mysql/mysql/drupal-db-pw.txt"
-DEBPASS=$(grep password /etc/mysql/debian.cnf |head -n1|awk '{print $3}')
-
-if [[ -f "${ROOT_PASSWORD_FILE}" ]]; then
-  ROOT_PASSWORD="$(cat "${ROOT_PASSWORD_FILE}")"
-else
-  ROOT_PASSWORD="$(pwgen -c -n -1 12)"
-  echo ${ROOT_PASSWORD} > "${ROOT_PASSWORD_FILE}"
-fi
+MYSQL_PASSWORD_FILE="/etc/drupal-db-pw.txt"
+MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-"root"}
 
 if [[ -f "${MYSQL_PASSWORD_FILE}" ]]; then
   MYSQL_PASSWORD="$(cat "${MYSQL_PASSWORD_FILE}")"
@@ -201,11 +170,8 @@ if ! mysqlrunning; then
 fi
 
 # Create and change MySQL creds
-mysqladmin -u root password ${ROOT_PASSWORD} 2>/dev/null
-mysql -uroot -p${ROOT_PASSWORD} -e \
-      "GRANT ALL PRIVILEGES ON *.* TO 'debian-sys-maint'@'localhost' IDENTIFIED BY '$DEBPASS';" 2>/dev/null
-mysql -uroot -p${ROOT_PASSWORD} -e \
-      "CREATE DATABASE drupal; GRANT ALL PRIVILEGES ON drupal.* TO 'drupal'@'%' IDENTIFIED BY '$MYSQL_PASSWORD'; FLUSH PRIVILEGES;" 2>/dev/null
+#mysql -h${DATABASE_HOST} -uroot -p${MYSQL_ROOT_PASSWORD} -e \
+#      "CREATE DATABASE drupal; GRANT ALL PRIVILEGES ON drupal.* TO 'drupal'@'%' IDENTIFIED BY '$MYSQL_PASSWORD'; FLUSH PRIVILEGES;" 2>/dev/null
 cd ${APPDIR}
 cp "${APPDIR_DRUPALBASE}/sites/default/default.settings.php" "${APPDIR_DRUPALBASE}/sites/default/settings.php"
 
@@ -218,30 +184,32 @@ if ! logrun "Running \`drush site-install\`." \
       ${DRUSH} site-install standard \
         --account-name="${DEV_DRUPAL_ADMIN_USER}" \
         --account-pass="${DEV_DRUPAL_ADMIN_PASSWORD}" \
-        --db-url="mysql://drupal:${MYSQL_PASSWORD}@localhost:3306/drupal" \
+        --db-url="mysql://root:${MYSQL_ROOT_PASSWORD}@${DATABASE_HOST}:3306/drupal" \
         --site-name="${SITE_NAME}"; then
     exit $?
 fi
-
-# Change root password
-echo "root:${ROOT_PASSWORD}" | chpasswd
+chown -R www-data.www-data /var/www/html/web/sites/default/files
 
 # Enabled themes
 if [[ ! -z "${DEV_THEMES_ENABLED[*]}" ]]; then
   for theme in ${DEV_THEMES_ENABLED[*]}; do
+    if ! logrun "Uninstall theme: ${theme}." \
+      "drush-theme-enable.log" ${DRUSH} theme:uninstall ${theme}; then
+      echo "Cannot uninstall theme ${theme}"
+    fi
     if ! logrun "Enable theme: ${theme}." \
-      "drush-theme-enable.log" ${DRUSH} theme-enable ${theme}; then
-      exit $?
+      "drush-theme-enable.log" ${DRUSH} theme:enable ${theme}; then
+      echo "Cannot enable theme ${theme}"
     fi
   done
 fi
 
 # Set the site theme
 if [[ ! -z ${DEV_PUBLIC_THEME} ]]; then
-  if ! logrun "Set primary site theme: ${DEV_PUBLIC_THEME[*]}." \
+  if ! logrun "Set primary site theme: ${DEV_PUBLIC_THEME}." \
     "drush-config-set-system-theme-default.log" \
     ${DRUSH} config-set system.theme default "${DEV_PUBLIC_THEME}"; then
-    exit $?
+    echo "Cannot set theme ${DEV_PUBLIC_THEME}"
   fi
 fi
 
@@ -250,7 +218,7 @@ if [[ ! -z ${DEV_ADMIN_THEME} ]]; then
   if ! logrun "Set administration theme: ${DEV_ADMIN_THEME[*]}." \
     "drush-config-set-system-theme-admin.log" \
     ${DRUSH} config-set system.theme admin "${DEV_ADMIN_THEME}"; then
-    exit $?
+    echo "Cannot set admin theme ${DEV_ADMIN_THEME}"
   fi
 fi
 
@@ -258,33 +226,37 @@ fi
 if [[ ! -z "${DEV_THEMES_DISABLED[*]}" ]]; then
   for theme in ${DEV_THEMES_DISABLED[*]}; do
     if ! logrun "Disable theme: ${theme}." \
-      "drush-theme-uninstall.log" ${DRUSH} theme-uninstall ${theme}; then
-      exit $?
+      "drush-theme-uninstall.log" ${DRUSH} theme:uninstall ${theme}; then
+      echo "Cannot disable theme ${theme}"
     fi
   done
 fi
 
 # Enabled modules
 if [[ ! -z "${DEV_MODULES_ENABLED[*]}" ]]; then
-  if ! logrun "Enable modules: ${DEV_MODULES_ENABLED[*]}." \
-    "drush-pm-enable.log" ${DRUSH} pm-enable ${DEV_MODULES_ENABLED[*]}; then
-    exit $?
-  fi
+  for module in ${DEV_MODULES_ENABLED[*]}; do
+    if ! logrun "Enable module: ${module}." \
+      "drush-pm-enable.log" ${DRUSH} pm-enable ${module}; then
+      echo "Cannot enable module ${module}"
+    fi
+  done
 fi
 
 # Disabled modules
 if [[ ! -z "${DEV_MODULES_DISABLED[*]}" ]]; then
-  if ! logrun "Disable modules: ${DEV_MODULES_DISABLED[*]}." \
-    "drush-pm-uninstall.log" ${DRUSH} pm-uninstall ${DEV_MODULES_DISABLED[*]}; then
-    exit $?
-  fi
+  for module in ${DEV_MODULES_DISABLED[*]}; do
+    if ! logrun "Disable module: ${module}." \
+      "drush-pm-uninstall.log" ${DRUSH} pm-uninstall ${module}; then
+      echo "Cannot uninstall module ${module}"
+    fi
+  done
 fi
 
 # Import features configuration.
 if ! logrun "Applying Features configuration." \
   "drush-features-import-all.log" \
   ${DRUSH} features-import-all; then
-  exit $?
+  echo "Cannot import features see /tmp/drush-features-import-all.log"
 fi
 
 # Reset files perms
@@ -312,10 +284,7 @@ echo "  ${SITE_NAME} installation complete $(date)"
 echo
 echo "  DRUPAL:  http://localhost               with user/pass: ${DEV_DRUPAL_ADMIN_USER}/${DEV_DRUPAL_ADMIN_PASSWORD}"
 echo
-echo "  MYSQL :  http://localhost/adminer.php   database: drupal"
-echo "                                          user:     drupal/${MYSQL_PASSWORD}"
-echo
-echo "  SSH   :  ssh root@localhost             user:     root/${ROOT_PASSWORD}"
+echo "  SSH   :  ssh root@localhost             user:     root/${MYSQL_ROOT_PASSWORD}"
 echo
 echo "  Please report any issues to https://github.com/dfletcher/drupal-devcontainer"
 echo
