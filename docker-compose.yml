@@ -14,11 +14,10 @@ services:
     tty: true
     image: davefletcher/drupal-ide
     #build:
-    #  context: ..
-    #  dockerfile: .devcontainer/Dockerfile
+    #  context: .
+    #  dockerfile: Dockerfile
     ports:
       - 80:80
-      - 9000:9000
     volumes:
       - ${PWD}:/workspace
     restart: always
