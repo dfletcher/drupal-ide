@@ -2,9 +2,9 @@
 
 Full featured IDE for Drupal based on VSCode and Docker Desktop. Drupal and Apache run in it's own container. MySQL runs in a separate container. Project management tools, text editor, debugger, shell, version control all in one integrated environment.
 
-![Drupal IDE in action](https://i.imgur.com/iXh5SiU.png)
-
 ##### :warning: Do not clone this repository. Add it as a submodule.  See [Installation](#installation) below.
+
+![Drupal IDE in action](https://i.imgur.com/iXh5SiU.png)
 
 ### Contents
 
