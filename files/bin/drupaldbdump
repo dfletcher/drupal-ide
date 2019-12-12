@@ -1,3 +1,5 @@
 #!/bin/bash
 
-mysqldump -h${MYSQL_HOST} -uroot -p${MYSQL_ROOT_PASSWORD} drupal
+HOST=${MYSQL_HOST:-mysqldb}
+
+mysqldump -h${HOST} -uroot -p${MYSQL_ROOT_PASSWORD} drupal

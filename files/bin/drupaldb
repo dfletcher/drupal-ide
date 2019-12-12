@@ -1,3 +1,5 @@
 #!/bin/bash
 
-mysql -h${MYSQL_HOST} -uroot -p${MYSQL_ROOT_PASSWORD} -Ddrupal
+HOST=${MYSQL_HOST:-mysqldb}
+
+mysql -h${HOST} -uroot -p${MYSQL_ROOT_PASSWORD} -Ddrupal
