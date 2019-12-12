@@ -10,6 +10,7 @@ Full featured IDE for Drupal based on VSCode and Docker Desktop. Drupal and Apac
 
 1. [Requirements](#requirements)
 1. [Installation](#installation)
+1. [Launch](#launch)
 
 
 ### Requirements
@@ -22,7 +23,6 @@ Full featured IDE for Drupal based on VSCode and Docker Desktop. Drupal and Apac
 :ballot_box_with_check: Additionally, you may need to configure the disk your project directory lives on as a Docker Desktop shared drive. If some shell (eg PowerShell) code appears when you enable a share, it is important to run that code in a terminal.
 
 :warning: This software is brand new and is currently only tested in Windows 10 Pro. It should run on MacOS but this is untested. Feedback welcome via issue queue or pull request. More complete documentation still under construction.
-
 
 ### Installation
 
@@ -41,3 +41,9 @@ This will add a .devcontainer subdirectory which VSCode will recognize. Before y
 Open .env.drupal-ide locally and configure your site name and any modules that you want enabled at install time.
 
 The .vscode subdirectory contains X-Debug configuration for debugging. You may have to adjust the paths.
+
+### Launch
+
+In VSCode, open the project folder that contains `.devcontainer`. VSCode should prompt you to reopen as a remote container.
+
+If your project contains a composer.json, it will be symlinked to the project root at /var/www/html and your deps should be loaded at container build time.
