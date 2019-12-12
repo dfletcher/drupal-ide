@@ -11,6 +11,7 @@ Full featured IDE for Drupal based on VSCode and Docker Desktop. Drupal and Apac
 1. [Requirements](#requirements)
 1. [Installation](#installation)
 1. [Launch](#launch)
+1. [Tools](#tools)
 
 
 ### Requirements
@@ -32,7 +33,19 @@ In your project directory, run the following command:
     $ git submodule add https://github.com/dfletcher/drupal-ide .devcontainer
 ```
 
-This will add a .devcontainer subdirectory which VSCode will recognize. Before you open it, configure by copying some files from .devcontainer into your project root:
+This will add a .devcontainer subdirectory which VSCode will recognize.
+
+Note that you do not need an existing Drupal installation to test the IDE or start a new project. Use the following commands to start an empty Drupal IDE project:
+
+```bash
+    $ mkdir newproject
+    $ cd newproject
+    $ git init
+    $ mkdir -p web/modules web/themes web/features
+    $ git submodule add https://github.com/dfletcher/drupal-ide .devcontainer
+```
+
+Before you open the project in a remote container, configure by copying some files from .devcontainer into your project root.
 
 ```bash
     $ cp .devcontainer/.env.drupal-ide.example .env.drupal-ide
@@ -47,3 +60,26 @@ The .vscode subdirectory contains X-Debug configuration for debugging. You may h
 In VSCode, open the project folder that contains `.devcontainer`. VSCode should prompt you to reopen as a remote container.
 
 If your project contains a composer.json, it will be symlinked to the project root at /var/www/html and your deps should be loaded at container build time.
+
+### Tools
+
+The following tools are installed:
+
+- `/usr/local/bin/drupaldb`
+  Connects to mysql with database selected.
+- `/usr/local/bin/drupaldbdump`
+  Dump the entire database.
+
+These can be used from terminal inside VSCode or from outside the container using the `docker run` command.
+
+Example:
+
+```bash
+    $ docker ps
+    2195d98e9f46        davefletcher/drupal-ide 
+    $ ssh user@myserver mysqldump -udbuser -pdbpass database | docker exec 2195d98e9f46 drupaldb
+```
+
+This command would dump the database at myserver into the Drupal IDE database. Of course, this is a partial example, to do a complete import you would need to drop the `drupal` database and re-create it e.g. `DROP DATABASE drupal; CREATE DATABASE drupal`.
+
+Note that you can also interact with the mysql container directly.
