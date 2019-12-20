@@ -57,11 +57,13 @@ fi
 COMPOSER="${COMPOSER:-$(find ${WORKSPACE} -name composer.json | grep -v .devcontainer | sort | head -n1)}"
 if [[ -z "${COMPOSER}" ]]; then
   # We do not have an existing composer.json. Use supplied.
-  cp ${WORKSPACE}/.devcontainer/files/composer.json ${WORKSPACE}/
-  rm composer.json
-  COMPOSER="${WORKSPACE}/composer.json"
+  cp ${WORKSPACE}/.devcontainer/files/composer.json ${WORKSPACE}/composer.json
+else
+  # Link the project composer to system.
+  rm "${APPDIR}/composer.json"
+  ln -s "${COMPOSER}" "${APPDIR}/composer.json"
 fi
-[[ -f "${APPDIR}/composer.json" ]] || ln -s "${COMPOSER}" "${APPDIR}/composer.json"
+COMPOSER="${WORKSPACE}/composer.json"
 
 if ! logrun "Running \`composer update\`. This takes a while." \
     "composer-update.log" \
