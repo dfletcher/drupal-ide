@@ -1,9 +1,8 @@
 version: '3.3'
 services:
   mysqldb:
-    hostname: mysqldb
-    image: mysql
     command: --default-authentication-plugin=mysql_native_password
+    image: mariadb:latest
     restart: always
     env_file:
       - files/.env.drupal-ide
